@@ -10,7 +10,7 @@
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC select * from citi_bike.fact_trips timestamp as of '2023-11-20'
+# MAGIC select * from citi_bike.fact_trips version as of 1
 
 # COMMAND ----------
 

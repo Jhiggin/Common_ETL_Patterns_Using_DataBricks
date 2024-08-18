@@ -4,8 +4,8 @@ metrics:
     metric_desc: Order Count
     query: count(bike_id)
     domain: sales
-  Total_Sales_Amount:
-    display_name: Total Sales Amount
-    metric_desc: Total Sales Amount
-    query: sum(Sales_Amount)
+  Avg_Trip_Duration:
+    display_name: Average Trip Duration
+    metric_desc: Average time the bike was rented
+    query: round(avg(trip_duration) / 60)
     domain: sales

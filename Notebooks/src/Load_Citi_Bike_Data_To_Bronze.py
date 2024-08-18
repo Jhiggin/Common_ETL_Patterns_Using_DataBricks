@@ -1,4 +1,11 @@
 # Databricks notebook source
+# MAGIC %md
+# MAGIC
+# MAGIC ### Import Libraries to support Extract
+# MAGIC
+
+# COMMAND ----------
+
 from pyspark.sql.types import (
     StructType,
     StructField,
@@ -28,8 +35,22 @@ from datetime import (
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC
+# MAGIC ## Set the file location where we are picking up our data
+# MAGIC
+
+# COMMAND ----------
+
 # set the data lake file location:
 file_location = ("/mnt/data/in/*.csv")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC
+# MAGIC ## Define our schema and load our data to a dataframe
+# MAGIC
 
 # COMMAND ----------
 
@@ -64,7 +85,28 @@ df_citi_bike_data = (
 
 # COMMAND ----------
 
+display(df_citi_bike_data)
+
+# COMMAND ----------
+
+from pyspark.sql.functions import to_date
+
 df_citi_bike_data = df_citi_bike_data.withColumn('Rental_Date', to_date('start_time'))
+
+# COMMAND ----------
+
+display(df_citi_bike_data)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC
+# MAGIC ## Write our data to our bronze layer
+# MAGIC
+
+# COMMAND ----------
+
+spark.sql(f"DROP TABLE IF EXISTS {bronze_delta_location}.citi_bike_data")
 
 # COMMAND ----------
 
@@ -73,6 +115,13 @@ bronze_delta_location = "citi_bike_dev.bronze"
 df_citi_bike_data.write.format("delta").mode("overwrite").saveAsTable(
     bronze_delta_location + ".citi_bike_data"
 )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC
+# MAGIC ## Create a function to build a date table
+# MAGIC
 
 # COMMAND ----------
 
@@ -106,12 +155,40 @@ def create_date_table(start_date, end_date):
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC
+# MAGIC ## Call our function to create the date table
+# MAGIC
+
+# COMMAND ----------
+
 start_date = '2005-01-01'
 end_date = '2030-12-31'
 date_table_df = create_date_table(start_date, end_date)
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC
+# MAGIC ## Write our date table to the bronze layer
+# MAGIC
+
+# COMMAND ----------
+
+spark.sql(f"DROP TABLE IF EXISTS {bronze_delta_location}.adventureworksdw_dim_date")
+
 date_table_df.write.format("delta").mode("overwrite").saveAsTable(
-    bronze_location + ".adventureworksdw_dim_date"
+    bronze_delta_location + ".adventureworksdw_dim_date"
 )
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC
+# MAGIC Select * from citi_bike_dev.bronze.citi_bike_data
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC
+# MAGIC Select * from citi_bike_dev.bronze.adventureworksdw_dim_date
