@@ -1,0 +1,6 @@
+tables:
+  trips:
+    table_path: "citi_bike_dev.silver.fact_trips"
+  bikes:
+    table_path: "citi_bike_dev.silver.dim_bikes"
+    join_key: "bike_key"

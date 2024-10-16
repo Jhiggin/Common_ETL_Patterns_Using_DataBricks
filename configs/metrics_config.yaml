@@ -1,0 +1,11 @@
+metrics:
+  Trip_Count:
+    display_name: Order Count
+    metric_desc: Order Count
+    query: count(bike_id)
+    domain: sales
+  Avg_Trip_Duration:
+    display_name: Average Trip Duration
+    metric_desc: Average time the bike was rented
+    query: round(avg(trip_duration) / 60)
+    domain: sales

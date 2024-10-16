@@ -132,62 +132,73 @@ display(df_date)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ### Loading data to Delta Files
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, lit, date_format, year, month, dayofmonth, quarter, dayofweek
+from datetime import datetime, timedelta
+
+def create_date_table(start_date, end_date):
+    """
+    Create a date dimension table.
+    
+    :param start_date: string, start date in 'YYYY-MM-DD' format
+    :param end_date: string, end date in 'YYYY-MM-DD' format
+    :return: DataFrame of the date dimension
+    """
+    # Create a Spark session
+    spark = SparkSession.builder.appName("Create Date Table").getOrCreate()
+
+    # Generate a range of dates
+    total_days = (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days
+    date_list = [(datetime.strptime(start_date, '%Y-%m-%d') + timedelta(days=x)).date() for x in range(total_days + 1)]
+    dates_df = spark.createDataFrame(date_list, 'date')
+
+    # Expand the date information
+    date_table = dates_df.select(
+        col('value').alias('date'),
+        year('date').alias('year'),
+        quarter('date').alias('quarter'),
+        month('date').alias('month'),
+        dayofmonth('date').alias('day_of_month'),
+        dayofweek('date').alias('day_of_week'),
+        date_format('date', 'E').alias('weekday'),
+        (dayofweek('date') > 5).cast('boolean').alias('is_weekend')
+    )
+
+    return date_table
+
+# Example usage of the function
+start_date = '2005-01-01'
+end_date = '2030-12-31'
+date_table_df = create_date_table(start_date, end_date)
+
 
 # COMMAND ----------
 
-# Writing data to persistent storage (for example, Delta Lake)
-bronze_delta_location = "/mnt/data/bronze"
 
-df_citi_bike_data.write.format("delta").mode("overwrite").save(
-    bronze_delta_location + "/citi_bike_data"
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Loading data to Delta
+
+# COMMAND ----------
+
+bronze_delta_location = "citi_bike_dev.bronze"
+
+df_citi_bike_data.write.format("delta").mode("overwrite").saveAsTable(
+    bronze_delta_location + ".citi_bike_data"
 )
 
 # COMMAND ----------
 
-bronze_delta_location = "/mnt/data/bronze"
-
-display(dbutils.fs.ls(bronze_delta_location + "/citi_bike_data/_delta_log"))
-
-# COMMAND ----------
-
-create_database_command = f"""
-    CREATE DATABASE IF NOT EXISTS Citi_Bike;
-"""
-
-spark.sql(create_database_command)
-
-# COMMAND ----------
-
-# SQL command to create a Delta table
-
-drop_table_command = f"""
-    DROP TABLE IF EXISTS Citi_Bike.raw_bike_data
-"""
-
-create_table_command = f"""
-    CREATE TABLE Citi_Bike.raw_bike_data
-    USING DELTA
-    LOCATION '{bronze_delta_location}/citi_bike_data'
-"""
-
-# Execute SQL command
-spark.sql(drop_table_command)
-spark.sql(create_table_command)
+# MAGIC %sql
+# MAGIC select * from citi_bike_dev.bronze.citi_bike_data limit 10;
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC DESCRIBE DETAIL citi_bike.raw_bike_data
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC select
-# MAGIC   *
-# MAGIC from
-# MAGIC   citi_bike.raw_bike_data
+# MAGIC
+# MAGIC describe detail citi_bike_dev.bronze.citi_bike_data
 
 # COMMAND ----------
 
@@ -195,18 +206,18 @@ from pyspark.sql.functions import col, trim, lower
 from pyspark.sql.functions import monotonically_increasing_id
 
 df_start_stations = spark.sql(
-    "SELECT start_station_id as Station_ID, start_station_name as Station_Name, start_station_latitude as Station_Latitude, start_station_longitude as Station_Longitude FROM citi_bike.raw_bike_data"
+    "SELECT start_station_id as Station_ID, start_station_name as Station_Name, start_station_latitude as Station_Latitude, start_station_longitude as Station_Longitude FROM citi_bike_dev.bronze.citi_bike_data"
 )
 
 df_end_stations = spark.sql(
-    "SELECT end_station_id as Station_ID, end_station_name as Station_Name, end_station_latitude as Station_Latitude, end_station_longitude as Station_Longitude FROM citi_bike.raw_bike_data"
+    "SELECT end_station_id as Station_ID, end_station_name as Station_Name, end_station_latitude as Station_Latitude, end_station_longitude as Station_Longitude FROM citi_bike_dev.bronze.citi_bike_data"
 )
 
 df_stations = df_start_stations.union(df_end_stations)
 
 df_stations = df_stations.distinct()
 
-df_bikes = spark.sql("SELECT bike_id from citi_bike.raw_bike_data")
+df_bikes = spark.sql("SELECT bike_id from citi_bike_dev.bronze.citi_bike_data")
 
 df_bikes = df_bikes.distinct()
 
@@ -225,78 +236,29 @@ df_bikes.groupBy(df_bikes.columns).count().filter("count > 1").show(truncate=Fal
 # COMMAND ----------
 
 # Writing data to persistent storage (for example, Delta Lake)
-delta_location = "/mnt/data/silver"
+silver_location = "citi_bike_dev.silver"
 
-df_stations.write.format("delta").mode("overwrite").save(
-    delta_location + "/dim_stations"
+df_stations.write.format("delta").mode("overwrite").saveAsTable(
+    silver_location + ".dim_stations"
 )
 
-df_bikes.write.format("delta").mode("overwrite").save(
-    delta_location + "/dim_bikes"
+df_bikes.write.format("delta").mode("overwrite").saveAsTable(
+    silver_location + ".dim_bikes"
 )
 
-df_date.write.format("delta").mode("overwrite").save(
-    delta_location + "/dim_date"
+date_table_df.write.format("delta").mode("overwrite").saveAsTable(
+    silver_location + ".dim_date"
 )
-
-# COMMAND ----------
-
-# SQL command to create a Delta table
-
-drop_table_command = f"""
-    DROP TABLE IF EXISTS citi_bike.dim_stations
-"""
-
-create_table_command = f"""
-    CREATE TABLE citi_bike.dim_stations
-    USING DELTA
-    LOCATION '{delta_location}/dim_stations'
-"""
-
-# Execute SQL command
-spark.sql(drop_table_command)
-spark.sql(create_table_command)
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC select * from citi_bike.dim_stations
+# MAGIC select * from citi_bike_dev.silver.dim_date
 
 # COMMAND ----------
 
-# SQL command to create a Delta table
-
-drop_table_command = f"""
-    DROP TABLE IF EXISTS citi_bike.dim_bikes
-"""
-
-create_table_command = f"""
-    CREATE TABLE citi_bike.dim_bikes
-    USING DELTA
-    LOCATION '{delta_location}/dim_bikes'
-"""
-
-# Execute SQL command
-spark.sql(drop_table_command)
-spark.sql(create_table_command)
-
-# COMMAND ----------
-
-# SQL command to create a Delta table
-
-drop_table_command = f"""
-    DROP TABLE IF EXISTS citi_bike.dim_date
-"""
-
-create_table_command = f"""
-    CREATE TABLE citi_bike.dim_date
-    USING DELTA
-    LOCATION '{delta_location}/dim_date'
-"""
-
-# Execute SQL command
-spark.sql(drop_table_command)
-spark.sql(create_table_command)
+# MAGIC %sql
+# MAGIC select count(*) from citi_bike.dim_stations where Station_ID is null
 
 # COMMAND ----------
 
@@ -305,7 +267,7 @@ spark.sql(create_table_command)
 # MAGIC   station_id,
 # MAGIC   COUNT(*) AS count
 # MAGIC FROM
-# MAGIC   citi_bike.dim_stations
+# MAGIC   citi_bike_dev.silver.dim_stations
 # MAGIC GROUP BY
 # MAGIC   station_id
 # MAGIC HAVING
@@ -321,7 +283,7 @@ spark.sql(create_table_command)
 # MAGIC   Station_latitude,
 # MAGIC   Station_longitude
 # MAGIC FROM
-# MAGIC   citi_bike.dim_stations
+# MAGIC   citi_bike_dev.silver.dim_stations
 
 # COMMAND ----------
 
@@ -329,17 +291,17 @@ spark.sql(create_table_command)
 # MAGIC SELECT
 # MAGIC   *
 # MAGIC FROM
-# MAGIC   dim_bikes
+# MAGIC   citi_bike_dev.silver.dim_bikes
 
 # COMMAND ----------
 
 df_trips = spark.sql(" \
-     SELECT  d.datekey as Rental_Date_Key, bd.trip_duration, s.stations_key as Start_Station_Key, es.stations_key as End_Station_Key, b.bike_key as Bike_Key  \
-     FROM citi_bike.raw_bike_data as bd \
-     JOIN citi_bike.dim_date d ON bd.rental_date = d.FullDateAlternateKey \
-     JOIN citi_bike.dim_bikes b ON bd.bike_id = b.bike_id \
-     LEFT JOIN citi_bike.dim_stations s on bd.start_station_id = s.station_id \
-     LEFT JOIN citi_bike.dim_stations es on bd.end_station_id = es.station_id \
+     SELECT  isnull(d.date, -1) as Rental_Date_Key, bd.trip_duration, isnull(s.stations_key, -1) as Start_Station_Key, isnull(es.stations_key, -1) as End_Station_Key, isnull(b.bike_key, -1) as Bike_Key  \
+     FROM citi_bike_dev.bronze.citi_bike_data as bd \
+     JOIN citi_bike_dev.silver.dim_date d ON bd.rental_date = d.Date \
+     LEFT JOIN citi_bike_dev.silver.dim_bikes b ON bd.bike_id = b.bike_id \
+     LEFT JOIN citi_bike_dev.silver.dim_stations s on bd.start_station_id = s.station_id \
+     LEFT JOIN citi_bike_dev.silver.dim_stations es on bd.end_station_id = es.station_id \
 ")
 
 # COMMAND ----------
@@ -348,29 +310,15 @@ display(df_trips)
 
 # COMMAND ----------
 
-df_trips.write.format("delta").mode("overwrite").save(
-    delta_location + "/fact_trips"
+display(df_trips)
+
+# COMMAND ----------
+
+df_trips.write.format("delta").mode("overwrite").saveAsTable(
+    silver_location + ".fact_trips"
 )
 
 # COMMAND ----------
 
-# SQL command to create a Delta table
-
-drop_table_command = f"""
-    DROP TABLE IF EXISTS citi_bike.fact_trips
-"""
-
-create_table_command = f"""
-    CREATE TABLE citi_bike.fact_trips
-    USING DELTA
-    LOCATION '{delta_location}/fact_trips'
-"""
-
-# Execute SQL command
-spark.sql(drop_table_command)
-spark.sql(create_table_command)
-
-# COMMAND ----------
-
 # MAGIC %sql
-# MAGIC Select * from citi_bike.fact_trips
+# MAGIC Select * from citi_bike_dev.silver.fact_trips
